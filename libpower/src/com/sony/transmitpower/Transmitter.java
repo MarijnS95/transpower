@@ -5,6 +5,9 @@
 package com.sony.transmitpower;
 
 import android.util.Log;
+import android.os.Handler;
+import android.os.AsyncResult;
+import android.os.Message;
 
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
@@ -20,7 +23,8 @@ public final class Transmitter {
     private static final String TAG = Transmitter.class.getCanonicalName();
 
     public static void transmitPower(final int key, final int value) {
-        if (DEBUG) Log.d(TAG, "setting key: " + key + ", value: " + value);
+        if (DEBUG)
+            Log.d(TAG, "setting key: " + key + ", value: " + value);
 
         if (!validate(key, value)) {
             return;
@@ -38,15 +42,12 @@ public final class Transmitter {
             return;
         }
 
-        byte[] request = new byte[OemPowerConsts.HEADER_SIZE
-                                  + OemPowerConsts.INT_SIZE
-                                  + OemPowerConsts.INT_SIZE];
+        byte[] request = new byte[OemPowerConsts.HEADER_SIZE + OemPowerConsts.INT_SIZE + OemPowerConsts.INT_SIZE];
         ByteBuffer buf = ByteBuffer.wrap(request);
         buf.order(ByteOrder.nativeOrder());
 
         try {
-            buf.put(OemPowerConsts.OEM_IDENTIFIER
-                    .getBytes(OemPowerConsts.ENCODING_USASCII));
+            buf.put(OemPowerConsts.OEM_IDENTIFIER.getBytes(OemPowerConsts.ENCODING_USASCII));
         } catch (UnsupportedEncodingException e) {
             Log.e(TAG, "Encoding not supported: " + e);
             return;
@@ -55,19 +56,31 @@ public final class Transmitter {
         // Add Request ID
         buf.putInt(OemPowerConsts.OEMHOOK_EVT_HOOK_SET_TRANSMIT_POWER);
         // Add Request payload
-        buf.putInt(OemPowerConsts.INT_SIZE);
+        buf.putInt(Integer.BYTES * 2);
         buf.putInt(key);
         buf.putInt(value);
 
+        Handler h = new Handler(new Handler.Callback() {
+            @Override
+            public boolean handleMessage(Message msg) {
+                Log.i(TAG, "Handler response msg " + msg);
+                AsyncResult ar = (AsyncResult) msg.obj;
+                if (ar != null && ar.exception != null)
+                    throw new RuntimeException(ar.exception);
+                Log.i(TAG, "Handler AR " + ar.result + " " + ar.userObj);
+                return true;
+            }
+        });
+
         try {
-            phone.invokeOemRilRequestRaw(request, null);
+            phone.invokeOemRilRequestRaw(request, h.obtainMessage());
         } catch (IllegalStateException e) {
             Log.e(TAG, "OEM request exception: " + e);
         }
     }
 
     private static boolean validate(final int key, final int value) {
-        switch(key) {
+        switch (key) {
             case OemPowerConsts.BATTERY_EXT:
             case OemPowerConsts.VOICECALL_EXT:
             case OemPowerConsts.PSENSOR_EXT:
@@ -80,7 +93,7 @@ public final class Transmitter {
                 return false;
         }
 
-        switch(value) {
+        switch (value) {
             case OemPowerConsts.BATTERY_EXT:
             case OemPowerConsts.VOICECALL_EXT:
             case OemPowerConsts.PSENSOR_EXT:
